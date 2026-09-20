@@ -4,6 +4,8 @@
 
 ビルド不要・インストール不要。`index.html` をブラウザで開けば、それだけで動きます。
 
+**→ [今すぐ使う](https://masatakeya.github.io/MarkdownEditor/)**
+
 ## 機能
 
 - **ライブプレビュー** — 左右2ペイン。エディタのスクロールにプレビューが追従します
@@ -23,7 +25,9 @@
 
 ## 使い方
 
-リポジトリを clone するか `index.html` をダウンロードして、ブラウザで開くだけです。
+上の公開ページ（https://masatakeya.github.io/MarkdownEditor/ ）を開けば、そのまま使えます。
+
+手元で動かしたい場合は、リポジトリを clone するか `index.html` をダウンロードして、ブラウザで開くだけです。
 
 ```bash
 git clone https://github.com/masatakeya/MarkdownEditor.git
