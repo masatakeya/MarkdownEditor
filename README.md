@@ -46,3 +46,7 @@ CDN から読み込んでいます。
 ## 安全性について
 
 Markdownの変換結果は必ず DOMPurify を通してから表示しているため、スクリプトを含む文書を開いても実行されません。本文中のリンクには `rel="noopener noreferrer"` を付けた上で別タブで開きます。
+
+## ライセンス
+
+[MIT License](LICENSE)
