@@ -92,7 +92,7 @@
 html,body{height:100%;margin:0}
 body{
   font-family:var(--ui);color:var(--ink);background:var(--bg);
-  display:grid;grid-template-rows:auto 1fr auto;height:100vh;height:100dvh;
+  display:grid;grid-template-rows:auto auto 1fr auto;height:100vh;height:100dvh;
 }
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
@@ -120,6 +120,13 @@ button.primary:hover{background:var(--accent-strong);border-color:var(--accent-s
 
 .tabs{display:none}
 .tabs button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+
+.toolbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  padding:6px 16px;background:var(--sheet);border-bottom:1px solid var(--rule);
+}
+.toolbar button{font-size:13px;padding:5px 11px;min-width:38px;line-height:1.4}
+.toolbar .sep{width:1px;height:18px;background:var(--rule);margin:0 3px}
 
 main{display:grid;grid-template-columns:1fr 1fr;min-height:0}
 #editor{
@@ -157,13 +164,16 @@ footer{
   #preview-pane .article{padding:24px 18px 80px}
   /* 保存先の指定は狭い画面では使えないため、ヘッダーを詰める */
   #btn-saveas{display:none}
+  .toolbar{padding:7px 12px;gap:6px}
+  .toolbar button{padding:9px 11px;min-width:40px}
+  body[data-view="preview"] .toolbar{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   #toast{transition:none}
 }
 @media print{
   body{display:block;height:auto;background:#fff}
-  header,footer,#toast,#editor{display:none !important}
+  header,footer,#toast,#editor,.toolbar{display:none !important}
   main{display:block}
   #preview-pane,body[data-view="edit"] #preview-pane{display:block !important;overflow:visible;border-left:0;background:#fff}
   #preview-pane .article{max-width:none;margin:0;padding:0}
@@ -190,6 +200,20 @@ footer{
   </div>
   <input id="file-input" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden>
 </header>
+
+<div class="toolbar" id="toolbar" role="toolbar" aria-label="書式">
+  <button type="button" data-cmd="h1" title="大見出し">H1</button>
+  <button type="button" data-cmd="h2" title="中見出し">H2</button>
+  <button type="button" data-cmd="h3" title="小見出し">H3</button>
+  <span class="sep" aria-hidden="true"></span>
+  <button type="button" data-cmd="ul" title="箇条書き">箇条書き</button>
+  <button type="button" data-cmd="ol" title="番号付きリスト">番号</button>
+  <button type="button" data-cmd="quote" title="引用">引用</button>
+  <button type="button" data-cmd="table" title="表を挿入">表</button>
+  <span class="sep" aria-hidden="true"></span>
+  <button type="button" data-cmd="bold" title="太字（Ctrl / ⌘ + B）"><strong>B</strong></button>
+  <button type="button" data-cmd="italic" title="斜体（Ctrl / ⌘ + I）"><em>I</em></button>
+</div>
 
 <main>
   <textarea id="editor" placeholder="ここに書き始めてください" spellcheck="false" aria-label="Markdownの入力欄"></textarea>
@@ -654,6 +678,95 @@ footer{
     editor.setSelectionRange(ls, ls + out.length);
   }
 
+  /* ---------- ツールバー ---------- */
+  var TABLE_TEMPLATE = [
+    '| 見出し1 | 見出し2 | 見出し3 |',
+    '| --- | --- | --- |',
+    '|  |  |  |',
+    '|  |  |  |',
+    ''
+  ].join('\n');
+
+  // 選択している行（選択がなければカーソル行）をまとめて書き換える
+  function eachSelectedLine(transform) {
+    var v = editor.value;
+    var s = editor.selectionStart;
+    var e = editor.selectionEnd;
+    var ls = v.lastIndexOf('\n', s - 1) + 1;
+    var le = v.indexOf('\n', e);
+    if (le < 0) le = v.length;
+
+    var before = v.slice(ls, le);
+    var out = transform(before.split('\n')).join('\n');
+    editor.setSelectionRange(ls, le);
+    replaceSelection(out);
+
+    if (s !== e) {
+      editor.setSelectionRange(ls, ls + out.length);   // 選んでいた範囲は選んだまま
+    } else {
+      // カーソルだけのときは、印の増減ぶんだけずらして戻す
+      var p = s + (out.length - before.length);
+      if (p < ls) p = ls;
+      if (p > ls + out.length) p = ls + out.length;
+      editor.setSelectionRange(p, p);
+    }
+  }
+
+  // 行頭の印（見出し・箇条書き・番号・引用）を付け外しする
+  function toggleLinePrefix(kind, level) {
+    var test = kind === 'head' ? new RegExp('^\\s*#{' + level + '}\\s')
+      : kind === 'ul' ? /^\s*[-*+]\s/
+      : kind === 'ol' ? /^\s*\d+[.)]\s/
+      : /^\s*>\s/;
+
+    eachSelectedLine(function (lines) {
+      var filled = lines.filter(function (l) { return l.trim(); });
+      if (!filled.length) filled = lines;
+      var already = filled.every(function (l) { return test.test(l); });
+      var n = 0;
+
+      return lines.map(function (line) {
+        // 複数行を選んでいるときは空行を飛ばす。
+        // 1行だけのときは、空行でも印を置いて書き始められるようにする。
+        if (!line.trim() && lines.length > 1) return line;
+        var indent = /^(\s*)/.exec(line)[1];
+        var body = line.slice(indent.length)
+          .replace(/^#{1,6}\s+/, '')
+          .replace(/^>\s+/, '')
+          .replace(/^[-*+]\s+/, '')
+          .replace(/^\d+[.)]\s+/, '');
+        if (already) return indent + body;
+        n++;
+        var mark = kind === 'head' ? (new Array(level + 1).join('#') + ' ')
+          : kind === 'ul' ? '- '
+          : kind === 'ol' ? (n + '. ')
+          : '> ';
+        return indent + mark + body;
+      });
+    });
+  }
+
+  function insertTable() {
+    var v = editor.value;
+    var e = editor.selectionEnd;
+    var ls = v.lastIndexOf('\n', editor.selectionStart - 1) + 1;
+    var onBlankLine = !v.slice(ls, e).trim();
+    editor.setSelectionRange(e, e);
+    replaceSelection((onBlankLine ? '' : '\n\n') + TABLE_TEMPLATE);
+  }
+
+  var COMMANDS = {
+    h1: function () { toggleLinePrefix('head', 1); },
+    h2: function () { toggleLinePrefix('head', 2); },
+    h3: function () { toggleLinePrefix('head', 3); },
+    ul: function () { toggleLinePrefix('ul'); },
+    ol: function () { toggleLinePrefix('ol'); },
+    quote: function () { toggleLinePrefix('quote'); },
+    table: insertTable,
+    bold: function () { wrapSelection('**'); },
+    italic: function () { wrapSelection('*'); }
+  };
+
   // 箇条書き・番号付きリスト・引用を、改行時に引き継ぐ
   function continueBlock(ev) {
     if (editor.selectionStart !== editor.selectionEnd) return;
@@ -756,6 +869,18 @@ footer{
   $('#btn-save').addEventListener('click', saveMarkdown);
   $('#btn-saveas').addEventListener('click', saveMarkdownAs);
   $('#btn-html').addEventListener('click', exportHtml);
+
+  var toolbar = $('#toolbar');
+  // ボタンを押しても入力欄からフォーカスと選択範囲を奪わない
+  toolbar.addEventListener('mousedown', function (ev) {
+    if (ev.target.closest('button')) ev.preventDefault();
+  });
+  toolbar.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('button');
+    if (!btn) return;
+    var cmd = COMMANDS[btn.getAttribute('data-cmd')];
+    if (cmd) cmd();
+  });
 
   fileInput.addEventListener('change', function () {
     var f = fileInput.files[0];
