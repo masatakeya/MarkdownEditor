@@ -24,6 +24,7 @@
   --accent-soft:#E3E7F4;
   --quote-ink:#2A3550;
   --code:#E8EBF0;
+  --hl:rgba(255,196,0,.42);
   --ui:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI",Meiryo,system-ui,sans-serif;
   --serif:"Noto Serif JP","Hiragino Mincho ProN","Yu Mincho",serif;
   --mono:"M PLUS 1 Code","SFMono-Regular",Consolas,"Hiragino Sans",monospace;
@@ -42,6 +43,7 @@
     --accent-soft:#232A3A;
     --quote-ink:#C7D1E6;
     --code:#242A33;
+    --hl:rgba(255,196,0,.34);
   }
 }
 </style>
@@ -92,8 +94,9 @@
 html,body{height:100%;margin:0}
 body{
   font-family:var(--ui);color:var(--ink);background:var(--bg);
-  display:grid;grid-template-rows:auto auto 1fr auto;height:100vh;height:100dvh;
+  display:flex;flex-direction:column;height:100vh;height:100dvh;
 }
+header,.toolbar,.findbar,footer{flex:none}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 header{
@@ -128,7 +131,30 @@ button.primary:hover{background:var(--accent-strong);border-color:var(--accent-s
 .toolbar button{font-size:13px;padding:5px 11px;min-width:38px;line-height:1.4}
 .toolbar .sep{width:1px;height:18px;background:var(--rule);margin:0 3px}
 
-main{display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.findbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  padding:6px 16px;background:var(--pane);border-bottom:1px solid var(--rule);font-size:13px;
+}
+.findbar[hidden]{display:none}
+.findbar input[type=text]{
+  font:inherit;font-size:14px;color:var(--ink);background:var(--sheet);
+  border:1px solid var(--rule);border-radius:4px;padding:5px 8px;flex:0 1 13em;min-width:6em;
+}
+.findbar input[type=text]:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
+.findbar button{font-size:13px;padding:5px 10px;line-height:1.4}
+.find-count{color:var(--muted);min-width:6em;font-variant-numeric:tabular-nums}
+.find-opt{display:flex;align-items:center;gap:4px;color:var(--muted);cursor:pointer;user-select:none}
+.find-close{margin-left:auto}
+
+/* 一致箇所の位置を測るための、入力欄の見えない写し */
+.mirror{position:absolute;top:0;left:-9999px;visibility:hidden;white-space:pre-wrap;overflow-wrap:break-word}
+
+main{display:grid;grid-template-columns:1fr 1fr;flex:1 1 auto;min-height:0}
+.editor-wrap{position:relative;min-width:0;min-height:0;overflow:hidden}
+/* 検索で選んだ箇所を、入力欄の上から蛍光ペンのように塗る */
+.find-hl{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.find-hl-inner{position:absolute;left:0;top:0;right:0}
+.find-hl-inner span{position:absolute;background:var(--hl);border-radius:2px}
 #editor{
   display:block;width:100%;height:100%;resize:none;border:0;outline:none;
   background:var(--sheet);color:var(--ink);
@@ -159,21 +185,28 @@ footer{
   main{grid-template-columns:1fr}
   #preview-pane{border-left:0}
   body[data-view="edit"] #preview-pane{display:none}
-  body[data-view="preview"] #editor{display:none}
+  body[data-view="preview"] .editor-wrap{display:none}
   #editor{font-size:16px;padding:20px 18px 80px}
   #preview-pane .article{padding:24px 18px 80px}
   /* 保存先の指定は狭い画面では使えないため、ヘッダーを詰める */
   #btn-saveas{display:none}
   .toolbar{padding:7px 12px;gap:6px}
   .toolbar button{padding:9px 11px;min-width:40px}
-  body[data-view="preview"] .toolbar{display:none}
+  body[data-view="preview"] .toolbar,body[data-view="preview"] .findbar{display:none}
+  .findbar{padding:7px 12px;gap:5px}
+  .findbar input[type=text]{flex:1 1 9em;font-size:16px}
+  .findbar button{padding:8px 10px}
+  /* 2段に収めるため、日本語では出番の少ない選択肢を省く */
+  .find-opt{display:none}
+  .find-count{min-width:0;margin-right:auto}
+  .find-close{margin-left:0}
 }
 @media (prefers-reduced-motion:reduce){
   #toast{transition:none}
 }
 @media print{
   body{display:block;height:auto;background:#fff}
-  header,footer,#toast,#editor,.toolbar{display:none !important}
+  header,footer,#toast,.editor-wrap,.toolbar,.findbar{display:none !important}
   main{display:block}
   #preview-pane,body[data-view="edit"] #preview-pane{display:block !important;overflow:visible;border-left:0;background:#fff}
   #preview-pane .article{max-width:none;margin:0;padding:0}
@@ -210,13 +243,31 @@ footer{
   <button type="button" data-cmd="ol" title="番号付きリスト">番号</button>
   <button type="button" data-cmd="quote" title="引用">引用</button>
   <button type="button" data-cmd="table" title="表を挿入">表</button>
+  <button type="button" data-cmd="link" title="リンク（Ctrl / ⌘ + K）">リンク</button>
   <span class="sep" aria-hidden="true"></span>
   <button type="button" data-cmd="bold" title="太字（Ctrl / ⌘ + B）"><strong>B</strong></button>
   <button type="button" data-cmd="italic" title="斜体（Ctrl / ⌘ + I）"><em>I</em></button>
+  <span class="sep" aria-hidden="true"></span>
+  <button type="button" data-cmd="find" title="検索・置換（Ctrl / ⌘ + F）">検索</button>
+</div>
+
+<div class="findbar" id="findbar" role="search" aria-label="検索と置換" hidden>
+  <input id="find-input" type="text" placeholder="検索" aria-label="検索する文字" spellcheck="false" autocomplete="off">
+  <input id="replace-input" type="text" placeholder="置換後の文字" aria-label="置換後の文字" spellcheck="false" autocomplete="off">
+  <span id="find-count" class="find-count" aria-live="polite"></span>
+  <button type="button" id="find-prev" title="前へ（Shift + Enter）">前へ</button>
+  <button type="button" id="find-next" title="次へ（Enter）">次へ</button>
+  <button type="button" id="find-replace" title="置換して次へ">置換</button>
+  <button type="button" id="find-replace-all">すべて置換</button>
+  <label class="find-opt"><input type="checkbox" id="find-case">大文字と小文字を区別</label>
+  <button type="button" id="find-close" class="find-close" title="閉じる（Esc）" aria-label="検索を閉じる">×</button>
 </div>
 
 <main>
-  <textarea id="editor" placeholder="ここに書き始めてください" spellcheck="false" aria-label="Markdownの入力欄"></textarea>
+  <div class="editor-wrap">
+    <textarea id="editor" placeholder="ここに書き始めてください" spellcheck="false" aria-label="Markdownの入力欄"></textarea>
+    <div class="find-hl" aria-hidden="true"><div class="find-hl-inner" id="find-hl"></div></div>
+  </div>
   <div id="preview-pane" aria-label="プレビュー">
     <article id="preview" class="article"></article>
   </div>
@@ -755,6 +806,293 @@ footer{
     replaceSelection((onBlankLine ? '' : '\n\n') + TABLE_TEMPLATE);
   }
 
+  /* ---------- リンク ---------- */
+  var URL_RE = /^https?:\/\/\S+$/;
+  var LINK_PLACEHOLDER = 'リンクの文字';
+
+  function insertLink() {
+    var s = editor.selectionStart;
+    var sel = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+
+    if (URL_RE.test(sel)) {
+      // URLを選んでいた: 表示する文字を打てるよう [] の中へ
+      replaceSelection('[](' + sel + ')');
+      editor.setSelectionRange(s + 1, s + 1);
+    } else if (sel) {
+      // 文字を選んでいた: URLを貼り付けられるよう https:// を選んだ状態に
+      replaceSelection('[' + sel + '](https://)');
+      var u = s + sel.length + 3;
+      editor.setSelectionRange(u, u + 'https://'.length);
+    } else {
+      replaceSelection('[' + LINK_PLACEHOLDER + '](https://)');
+      editor.setSelectionRange(s + 1, s + 1 + LINK_PLACEHOLDER.length);
+    }
+  }
+
+  /* ---------- 検索・置換 ---------- */
+  var findBar = $('#findbar');
+  var findInput = $('#find-input');
+  var replaceInput = $('#replace-input');
+  var findCount = $('#find-count');
+  var findCase = $('#find-case');
+  var matches = [];        // { index, length } の一覧
+  var current = -1;        // 選択中の一致（なければ -1）
+  var mirror = null;
+
+  var MIRROR_PROPS = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+    'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight',
+    'letterSpacing', 'wordSpacing', 'tabSize', 'textIndent', 'wordBreak'];
+
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // textarea は折り返しがあるため、同じ見た目の写しを作って位置を測る。
+  // start〜end の範囲を span で包んで返す。
+  function measureRange(start, end) {
+    if (!mirror) {
+      mirror = document.createElement('div');
+      mirror.className = 'mirror';
+      mirror.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(mirror);
+    }
+    var cs = getComputedStyle(editor);
+    MIRROR_PROPS.forEach(function (p) { mirror.style[p] = cs[p]; });
+    mirror.style.boxSizing = 'border-box';
+    mirror.style.width = editor.clientWidth + 'px';   // スクロールバーを除いた幅
+    mirror.textContent = editor.value.slice(0, start);
+    var mark = document.createElement('span');
+    mark.textContent = end > start ? editor.value.slice(start, end) : '​';
+    mirror.appendChild(mark);
+    return mark;
+  }
+
+  // 入力欄の中で pos 文字目が上から何pxにあるか
+  function offsetTopOf(pos) {
+    return measureRange(pos, pos).offsetTop;
+  }
+
+  var hlLayer = $('#find-hl');
+
+  function clearHighlight() {
+    hlLayer.textContent = '';
+  }
+
+  // 検索欄にフォーカスがあると入力欄の選択表示が見えなくなるため、
+  // 選んだ一致を上から塗って示す
+  function drawHighlight() {
+    clearHighlight();
+    if (findBar.hidden || current < 0 || !matches[current] || document.activeElement === editor) return;
+    var m = matches[current];
+    var mark = measureRange(m.index, m.index + m.length);
+    var base = mirror.getBoundingClientRect();
+    var rects = mark.getClientRects();   // 折り返しをまたぐと複数になる
+    for (var i = 0; i < rects.length; i++) {
+      var box = document.createElement('span');
+      box.style.left = (rects[i].left - base.left) + 'px';
+      box.style.top = (rects[i].top - base.top) + 'px';
+      box.style.width = rects[i].width + 'px';
+      box.style.height = rects[i].height + 'px';
+      hlLayer.appendChild(box);
+    }
+    followScroll();
+  }
+
+  function followScroll() {
+    hlLayer.style.transform = 'translate(' + (-editor.scrollLeft) + 'px,' + (-editor.scrollTop) + 'px)';
+  }
+
+  function syncPreviewScroll() {
+    var eMax = editor.scrollHeight - editor.clientHeight;
+    var pMax = pane.scrollHeight - pane.clientHeight;
+    if (eMax > 0 && pMax > 0) pane.scrollTop = pMax * (editor.scrollTop / eMax);
+  }
+
+  function reveal(pos) {
+    var y = offsetTopOf(pos);
+    var top = editor.scrollTop;
+    var h = editor.clientHeight;
+    // 見えている範囲にあれば動かさない
+    if (y < top + 8 || y > top + h - 40) {
+      editor.scrollTop = Math.max(0, y - h / 3);
+      syncPreviewScroll();   // scroll イベントを待たずにプレビューも合わせる
+    }
+  }
+
+  function computeMatches() {
+    matches = [];
+    var q = findInput.value;
+    if (!q) return;
+    var re = new RegExp(escapeRegExp(q), findCase.checked ? 'g' : 'gi');
+    var m;
+    while ((m = re.exec(editor.value))) {
+      matches.push({ index: m.index, length: m[0].length });
+    }
+  }
+
+  // いまの選択範囲がどれかの一致とぴったり重なっていれば、その番号
+  function matchAtSelection() {
+    var s = editor.selectionStart;
+    var e = editor.selectionEnd;
+    for (var i = 0; i < matches.length; i++) {
+      if (matches[i].index === s && matches[i].index + matches[i].length === e) return i;
+    }
+    return -1;
+  }
+
+  function updateCount() {
+    if (!findInput.value) findCount.textContent = '';
+    else if (!matches.length) findCount.textContent = '見つかりません';
+    else if (current < 0) findCount.textContent = matches.length + '件';
+    else findCount.textContent = (current + 1) + ' / ' + matches.length + '件';
+  }
+
+  function selectMatch(i) {
+    current = i;
+    var m = matches[i];
+    editor.setSelectionRange(m.index, m.index + m.length);
+    reveal(m.index);
+    updateCount();
+    drawHighlight();
+  }
+
+  // pos 以降（backwards なら pos より前）の最寄りの一致へ。端まで来たら反対側へ回る
+  function findFrom(pos, backwards) {
+    if (!matches.length) { current = -1; updateCount(); clearHighlight(); return; }
+    var i;
+    if (backwards) {
+      for (i = matches.length - 1; i >= 0; i--) { if (matches[i].index < pos) break; }
+      if (i < 0) i = matches.length - 1;
+    } else {
+      for (i = 0; i < matches.length; i++) { if (matches[i].index >= pos) break; }
+      if (i >= matches.length) i = 0;
+    }
+    selectMatch(i);
+  }
+
+  function findNext() {
+    computeMatches();
+    var s = editor.selectionStart;
+    findFrom(editor.selectionEnd > s ? s + 1 : s);
+  }
+
+  function findPrev() {
+    computeMatches();
+    findFrom(editor.selectionStart, true);
+  }
+
+  // 置換後もフォーカスを検索バーに戻し、Enter の連打で次々に置換できるようにする
+  function keepFindFocus(fn) {
+    var back = document.activeElement;
+    fn();
+    if (back && back !== editor && findBar.contains(back)) back.focus();
+  }
+
+  function replaceOne() {
+    if (!findInput.value) return;
+    computeMatches();
+    if (matchAtSelection() < 0) {
+      // まだ一致を選んでいなければ、まず選ぶだけ（いきなり書き換えない）
+      findFrom(editor.selectionStart);
+      return;
+    }
+    keepFindFocus(function () {
+      replaceSelection(replaceInput.value);
+      var after = editor.selectionEnd;
+      computeMatches();
+      findFrom(after);
+    });
+  }
+
+  function replaceAll() {
+    if (!findInput.value) return;
+    computeMatches();
+    if (!matches.length) { updateCount(); return; }
+
+    var v = editor.value;
+    var rep = replaceInput.value;
+    var out = '';
+    var last = 0;
+    var caret = editor.selectionStart;
+    var shift = 0;
+    matches.forEach(function (m) {
+      out += v.slice(last, m.index) + rep;
+      last = m.index + m.length;
+      if (m.index < caret) shift += rep.length - m.length;
+    });
+    out += v.slice(last);
+
+    var n = matches.length;
+    var top = editor.scrollTop;
+    keepFindFocus(function () {
+      // 全体を1回で書き換えるので、取り消しも1回で元に戻る
+      editor.setSelectionRange(0, v.length);
+      replaceSelection(out);
+      var p = Math.max(0, Math.min(out.length, caret + shift));
+      editor.setSelectionRange(p, p);
+      editor.scrollTop = top;
+    });
+    computeMatches();
+    current = -1;
+    updateCount();
+    clearHighlight();
+    showToast(n.toLocaleString('ja-JP') + '件を置換しました');
+  }
+
+  function openFind(focusReplace) {
+    var sel = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    if (sel && sel.indexOf('\n') < 0) findInput.value = sel;
+    findBar.hidden = false;
+    computeMatches();
+    current = matchAtSelection();
+    if (current < 0 && matches.length) findFrom(editor.selectionStart);
+    updateCount();
+    if (focusReplace && findInput.value) {
+      replaceInput.focus();
+      replaceInput.select();
+    } else {
+      findInput.focus();
+      findInput.select();
+    }
+  }
+
+  function closeFind() {
+    findBar.hidden = true;
+    matches = [];
+    current = -1;
+    clearHighlight();
+    editor.focus();   // 最後に見つけた箇所を選んだまま入力欄へ戻る
+  }
+
+  // 入力欄にフォーカスがある間は本来の選択表示が見えるので塗りを消す
+  editor.addEventListener('focus', clearHighlight);
+  editor.addEventListener('blur', function () { if (!findBar.hidden) drawHighlight(); });
+  window.addEventListener('resize', function () { if (hlLayer.firstChild) drawHighlight(); });
+
+  findInput.addEventListener('input', function () {
+    computeMatches();
+    findFrom(editor.selectionStart);
+  });
+  findCase.addEventListener('change', function () {
+    computeMatches();
+    findFrom(editor.selectionStart);
+  });
+  findInput.addEventListener('keydown', function (ev) {
+    if (ev.isComposing) return;
+    if (ev.key === 'Enter') { ev.preventDefault(); if (ev.shiftKey) findPrev(); else findNext(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); closeFind(); }
+  });
+  replaceInput.addEventListener('keydown', function (ev) {
+    if (ev.isComposing) return;
+    if (ev.key === 'Enter') { ev.preventDefault(); replaceOne(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); closeFind(); }
+  });
+  $('#find-next').addEventListener('click', findNext);
+  $('#find-prev').addEventListener('click', findPrev);
+  $('#find-replace').addEventListener('click', replaceOne);
+  $('#find-replace-all').addEventListener('click', replaceAll);
+  $('#find-close').addEventListener('click', closeFind);
+
   var COMMANDS = {
     h1: function () { toggleLinePrefix('head', 1); },
     h2: function () { toggleLinePrefix('head', 2); },
@@ -763,8 +1101,10 @@ footer{
     ol: function () { toggleLinePrefix('ol'); },
     quote: function () { toggleLinePrefix('quote'); },
     table: insertTable,
+    link: insertLink,
     bold: function () { wrapSelection('**'); },
-    italic: function () { wrapSelection('*'); }
+    italic: function () { wrapSelection('*'); },
+    find: function () { if (findBar.hidden) openFind(false); else closeFind(); }
   };
 
   // 箇条書き・番号付きリスト・引用を、改行時に引き継ぐ
@@ -804,6 +1144,12 @@ footer{
     refresh();
     updateState();
     queuePersist();
+    if (!findBar.hidden) {   // 本文が変わったら件数を数え直す
+      computeMatches();
+      current = matchAtSelection();
+      updateCount();
+      drawHighlight();
+    }
   }
 
   editor.addEventListener('input', onInput);
@@ -817,9 +1163,8 @@ footer{
   });
 
   editor.addEventListener('scroll', function () {
-    var eMax = editor.scrollHeight - editor.clientHeight;
-    var pMax = pane.scrollHeight - pane.clientHeight;
-    if (eMax > 0 && pMax > 0) pane.scrollTop = pMax * (editor.scrollTop / eMax);
+    if (hlLayer.firstChild) followScroll();
+    syncPreviewScroll();
   });
 
   editor.addEventListener('keydown', function (ev) {
@@ -830,13 +1175,15 @@ footer{
       ev.preventDefault();
       indentLines(ev.shiftKey);
     } else if (ev.key === 'Escape') {
-      editor.blur();   // Tab でフォーカスを移したいときの逃げ道
+      if (!findBar.hidden) closeFind();
+      else editor.blur();   // Tab でフォーカスを移したいときの逃げ道
     }
   });
 
   editor.addEventListener('paste', function (ev) {
-    var items = ev.clipboardData && ev.clipboardData.items;
-    if (!items) return;
+    var cd = ev.clipboardData;
+    if (!cd) return;
+    var items = cd.items || [];
     for (var i = 0; i < items.length; i++) {
       if (items[i].kind === 'file' && items[i].type.indexOf('image/') === 0) {
         var f = items[i].getAsFile();
@@ -845,6 +1192,14 @@ footer{
         embedImage(f);
         return;
       }
+    }
+
+    // 文字を選んだ状態でURLを貼ると、その文字がリンクになる
+    var url = (cd.getData('text/plain') || '').trim();
+    var sel = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    if (URL_RE.test(url) && sel && sel.indexOf('\n') < 0 && !URL_RE.test(sel)) {
+      ev.preventDefault();
+      replaceSelection('[' + sel + '](' + url + ')');
     }
   });
 
@@ -860,6 +1215,15 @@ footer{
     } else if (k === 'i' && document.activeElement === editor) {
       ev.preventDefault();
       wrapSelection('*');
+    } else if (k === 'k' && document.activeElement === editor) {
+      ev.preventDefault();
+      insertLink();
+    } else if (k === 'f' && !ev.shiftKey) {
+      ev.preventDefault();
+      openFind(false);
+    } else if (k === 'h' && !ev.shiftKey) {
+      ev.preventDefault();
+      openFind(true);
     }
   });
 
