@@ -25,6 +25,7 @@
   --quote-ink:#2A3550;
   --code:#E8EBF0;
   --hl:rgba(255,196,0,.42);
+  --danger:#B3261E;
   --ui:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI",Meiryo,system-ui,sans-serif;
   --serif:"Noto Serif JP","Hiragino Mincho ProN","Yu Mincho",serif;
   --mono:"M PLUS 1 Code","SFMono-Regular",Consolas,"Hiragino Sans",monospace;
@@ -44,6 +45,7 @@
     --quote-ink:#C7D1E6;
     --code:#242A33;
     --hl:rgba(255,196,0,.34);
+    --danger:#F2B8B5;
   }
 }
 </style>
@@ -143,7 +145,10 @@ button.primary:hover{background:var(--accent-strong);border-color:var(--accent-s
 .findbar input[type=text]:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
 .findbar button{font-size:13px;padding:5px 10px;line-height:1.4}
 .find-count{color:var(--muted);min-width:6em;font-variant-numeric:tabular-nums}
+.find-count.error{color:var(--danger)}
 .find-opt{display:flex;align-items:center;gap:4px;color:var(--muted);cursor:pointer;user-select:none}
+.findbar .short{display:none}
+.find-opt .short{font-family:var(--mono)}
 .find-close{margin-left:auto}
 
 /* 一致箇所の位置を測るための、入力欄の見えない写し */
@@ -193,12 +198,15 @@ footer{
   .toolbar{padding:7px 12px;gap:6px}
   .toolbar button{padding:9px 11px;min-width:40px}
   body[data-view="preview"] .toolbar,body[data-view="preview"] .findbar{display:none}
-  .findbar{padding:7px 12px;gap:5px}
-  .findbar input[type=text]{flex:1 1 9em;font-size:16px}
-  .findbar button{padding:8px 10px}
-  /* 2段に収めるため、日本語では出番の少ない選択肢を省く */
-  .find-opt{display:none}
-  .find-count{min-width:0;margin-right:auto}
+  /* 1段目に入力欄2つ、2段目に操作を並べて必ず2段に収める。
+     日本語では出番の少ない選択肢を省き、ボタンは短い表記に */
+  .findbar{padding:7px 12px;gap:6px 5px}
+  .findbar input[type=text]{flex:1 1 40%;min-width:0;font-size:16px}
+  .findbar button{padding:8px 9px;min-width:34px}
+  .find-opt-case{display:none}
+  .findbar .long{display:none}
+  .findbar .short{display:inline}
+  .find-count{min-width:0;margin-right:auto;white-space:nowrap}
   .find-close{margin-left:0}
 }
 @media (prefers-reduced-motion:reduce){
@@ -255,11 +263,12 @@ footer{
   <input id="find-input" type="text" placeholder="検索" aria-label="検索する文字" spellcheck="false" autocomplete="off">
   <input id="replace-input" type="text" placeholder="置換後の文字" aria-label="置換後の文字" spellcheck="false" autocomplete="off">
   <span id="find-count" class="find-count" aria-live="polite"></span>
-  <button type="button" id="find-prev" title="前へ（Shift + Enter）">前へ</button>
-  <button type="button" id="find-next" title="次へ（Enter）">次へ</button>
+  <button type="button" id="find-prev" title="前へ（Shift + Enter）" aria-label="前へ"><span class="long">前へ</span><span class="short" aria-hidden="true">↑</span></button>
+  <button type="button" id="find-next" title="次へ（Enter）" aria-label="次へ"><span class="long">次へ</span><span class="short" aria-hidden="true">↓</span></button>
   <button type="button" id="find-replace" title="置換して次へ">置換</button>
-  <button type="button" id="find-replace-all">すべて置換</button>
-  <label class="find-opt"><input type="checkbox" id="find-case">大文字と小文字を区別</label>
+  <button type="button" id="find-replace-all" aria-label="すべて置換"><span class="long">すべて置換</span><span class="short" aria-hidden="true">全置換</span></button>
+  <label class="find-opt find-opt-case"><input type="checkbox" id="find-case">大文字と小文字を区別</label>
+  <label class="find-opt" title="正規表現で検索（置換では $1 や \n が使えます）"><input type="checkbox" id="find-regex" aria-label="正規表現"><span class="long">正規表現</span><span class="short" aria-hidden="true">.*</span></label>
   <button type="button" id="find-close" class="find-close" title="閉じる（Esc）" aria-label="検索を閉じる">×</button>
 </div>
 
@@ -835,7 +844,8 @@ footer{
   var replaceInput = $('#replace-input');
   var findCount = $('#find-count');
   var findCase = $('#find-case');
-  var matches = [];        // { index, length } の一覧
+  var findRegex = $('#find-regex');
+  var matches = [];        // { index, length, m(正規表現の一致結果) } の一覧
   var current = -1;        // 選択中の一致（なければ -1）
   var mirror = null;
 
@@ -891,7 +901,7 @@ footer{
       var box = document.createElement('span');
       box.style.left = (rects[i].left - base.left) + 'px';
       box.style.top = (rects[i].top - base.top) + 'px';
-      box.style.width = rects[i].width + 'px';
+      box.style.width = Math.max(rects[i].width, m.length ? 0 : 3) + 'px';   // 幅0の一致も縦棒で見せる
       box.style.height = rects[i].height + 'px';
       hlLayer.appendChild(box);
     }
@@ -919,15 +929,61 @@ footer{
     }
   }
 
+  var regexError = '';
+
   function computeMatches() {
     matches = [];
+    regexError = '';
     var q = findInput.value;
     if (!q) return;
-    var re = new RegExp(escapeRegExp(q), findCase.checked ? 'g' : 'gi');
-    var m;
-    while ((m = re.exec(editor.value))) {
-      matches.push({ index: m.index, length: m[0].length });
+
+    // m: ^ と $ を行ごとに効かせる / u: \p{Script=Han} などを使えるようにする
+    var flags = 'gmu' + (findCase.checked ? '' : 'i');
+    var re;
+    try {
+      re = new RegExp(findRegex.checked ? q : escapeRegExp(q), flags);
+    } catch (e) {
+      regexError = e.message;
+      return;
     }
+
+    var v = editor.value;
+    var m;
+    while ((m = re.exec(v))) {
+      matches.push({ index: m.index, length: m[0].length, m: m });
+      if (m[0].length === 0) {
+        // 幅0の一致（^ など）で止まらないよう1文字進める。サロゲートペアは2つぶん
+        var cp = v.codePointAt(re.lastIndex);
+        re.lastIndex += (cp > 0xffff) ? 2 : 1;
+        if (re.lastIndex > v.length) break;
+      }
+    }
+  }
+
+  // 正規表現モードの置換文字列を展開する。
+  // \n \t は改行・タブに、$1 $& $<名前> などは String.prototype.replace と同じ意味に。
+  function expandReplacement(rep, m) {
+    if (!findRegex.checked) return rep;
+    var s = rep.replace(/\\([nt\\])/g, function (all, c) {
+      return c === 'n' ? '\n' : c === 't' ? '\t' : '\\';
+    });
+    return s.replace(/\$(\$|&|`|'|\d{1,2}|<([^>]*)>)/g, function (all, tok, name) {
+      if (tok === '$') return '$';
+      if (tok === '&') return m[0];
+      if (tok === '`') return m.input.slice(0, m.index);
+      if (tok === "'") return m.input.slice(m.index + m[0].length);
+      if (name !== undefined) {
+        if (!m.groups) return all;
+        return m.groups[name] == null ? '' : m.groups[name];
+      }
+      var n = parseInt(tok, 10);
+      if (n >= 1 && n < m.length) return m[n] == null ? '' : m[n];
+      if (tok.length === 2) {   // $12 のグループがなければ $1 + "2" とみなす
+        var n1 = parseInt(tok.charAt(0), 10);
+        if (n1 >= 1 && n1 < m.length) return (m[n1] == null ? '' : m[n1]) + tok.charAt(1);
+      }
+      return all;
+    });
   }
 
   // いまの選択範囲がどれかの一致とぴったり重なっていれば、その番号
@@ -941,7 +997,10 @@ footer{
   }
 
   function updateCount() {
+    findCount.classList.toggle('error', !!regexError);
+    findCount.title = regexError;
     if (!findInput.value) findCount.textContent = '';
+    else if (regexError) findCount.innerHTML = '<span class="long">正規表現に誤りがあります</span><span class="short">式に誤り</span>';
     else if (!matches.length) findCount.textContent = '見つかりません';
     else if (current < 0) findCount.textContent = matches.length + '件';
     else findCount.textContent = (current + 1) + ' / ' + matches.length + '件';
@@ -973,7 +1032,8 @@ footer{
   function findNext() {
     computeMatches();
     var s = editor.selectionStart;
-    findFrom(editor.selectionEnd > s ? s + 1 : s);
+    // いま一致を選んでいれば（幅0の一致も含めて）その次から探す
+    findFrom(matchAtSelection() >= 0 || editor.selectionEnd > s ? s + 1 : s);
   }
 
   function findPrev() {
@@ -991,23 +1051,28 @@ footer{
   function replaceOne() {
     if (!findInput.value) return;
     computeMatches();
-    if (matchAtSelection() < 0) {
+    if (regexError) { updateCount(); return; }
+    var hit = matchAtSelection();
+    if (hit < 0) {
       // まだ一致を選んでいなければ、まず選ぶだけ（いきなり書き換えない）
       findFrom(editor.selectionStart);
       return;
     }
+    var text = expandReplacement(replaceInput.value, matches[hit].m);
+    var zeroWidth = matches[hit].length === 0;
     keepFindFocus(function () {
-      replaceSelection(replaceInput.value);
+      replaceSelection(text);
       var after = editor.selectionEnd;
       computeMatches();
-      findFrom(after);
+      // 幅0の一致を空文字で置き換えると同じ位置でまた一致するので、1つ先から探す
+      findFrom(zeroWidth && text === '' ? after + 1 : after);
     });
   }
 
   function replaceAll() {
     if (!findInput.value) return;
     computeMatches();
-    if (!matches.length) { updateCount(); return; }
+    if (regexError || !matches.length) { updateCount(); return; }
 
     var v = editor.value;
     var rep = replaceInput.value;
@@ -1016,11 +1081,13 @@ footer{
     var caret = editor.selectionStart;
     var shift = 0;
     matches.forEach(function (m) {
-      out += v.slice(last, m.index) + rep;
+      var text = expandReplacement(rep, m.m);
+      out += v.slice(last, m.index) + text;
       last = m.index + m.length;
-      if (m.index < caret) shift += rep.length - m.length;
+      if (m.index < caret) shift += text.length - m.length;
     });
     out += v.slice(last);
+    if (out === v) { showToast('置換しても内容は変わりません'); return; }
 
     var n = matches.length;
     var top = editor.scrollTop;
@@ -1076,6 +1143,11 @@ footer{
   findCase.addEventListener('change', function () {
     computeMatches();
     findFrom(editor.selectionStart);
+  });
+  findRegex.addEventListener('change', function () {
+    computeMatches();
+    findFrom(editor.selectionStart);
+    findInput.focus();
   });
   findInput.addEventListener('keydown', function (ev) {
     if (ev.isComposing) return;
